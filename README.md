@@ -362,9 +362,9 @@ masks the loss and accuracy computation. The 5 absolute-time tokens (idx 11-12
 `time_s`, idx 13-15 `time_ns`) are removed before averaging.
 
 $$
-\mathcal{L}_{\text{full}} = \operatorname{mean}\big(\text{CE}[0:26]\big),
+\mathcal{L}_{\text{full}} = \mathrm{mean}\big(\text{CE}[0:26]\big),
 \qquad
-\mathcal{L}_{\text{ignore\\_times}} = \operatorname{mean}\big(\text{CE}[0:11] \,\Vert\, \text{CE}[16:26]\big),
+\mathcal{L}_{\text{ignore\\_times}} = \mathrm{mean}\big(\text{CE}[0:11] \,\Vert\, \text{CE}[16:26]\big),
 $$
 
 where $\Vert$ denotes concatenation, giving 21 retained positions per message.
@@ -482,9 +482,9 @@ Configured in `lob/train/sharding_utils.py`; shard_map step in
 Hierarchical AllReduce performs gradient averaging in two stages:
 
 $$
-g \leftarrow \operatorname{pmean}_{\text{gpus}}(g)
+g \leftarrow \mathrm{pmean}_{\text{gpus}}(g)
 \quad\text{(NVLink, intra-node)}, \qquad
-g \leftarrow \operatorname{pmean}_{\text{nodes}}(g)
+g \leftarrow \mathrm{pmean}_{\text{nodes}}(g)
 \quad\text{(Slingshot, inter-node)} .
 $$
 
