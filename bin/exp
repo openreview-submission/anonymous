@@ -1,0 +1,433 @@
+#!/usr/bin/env bash
+# =============================================================
+# exp - Git worktree parallel experiment manager
+# =============================================================
+set -euo pipefail
+
+MAIN_REPO="/path/to/AlphaTrade/LOBS5"
+EXP_ROOT="/path/to/AlphaTrade/experiments"
+REGISTRY="$EXP_ROOT/.exp_registry.json"
+BATCH_SCRIPT="train_full_autoreg.batch"
+
+# ---- helpers ----
+
+_ensure_exp_root() {
+    mkdir -p "$EXP_ROOT"
+    [ -f "$REGISTRY" ] || echo '{}' > "$REGISTRY"
+}
+
+_exp_dir() {
+    echo "$EXP_ROOT/exp_${1}"
+}
+
+# ===========================
+# exp new <name> [branch/commit]
+# ===========================
+cmd_new() {
+    local name="${1:?Usage: exp new <name> [branch/commit]}"
+    local ref="${2:-HEAD}"
+    local exp_dir
+    exp_dir="$(_exp_dir "$name")"
+
+    if [ -d "$exp_dir" ]; then
+        echo "ERROR: experiment '$name' already exists at $exp_dir"
+        exit 1
+    fi
+
+    _ensure_exp_root
+
+    local branch_flag=""
+    local actual_commit=""
+
+    # Check if ref is a local branch name
+    if git -C "$MAIN_REPO" show-ref --verify --quiet "refs/heads/$ref" 2>/dev/null; then
+        # It's a branch. Check if already checked out somewhere.
+        local current_branch
+        current_branch="$(git -C "$MAIN_REPO" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+
+        # Check all worktrees for this branch
+        local already_checked_out=false
+        if git -C "$MAIN_REPO" worktree list --porcelain 2>/dev/null | grep -q "branch refs/heads/$ref"; then
+            already_checked_out=true
+        fi
+
+        if [ "$already_checked_out" = true ]; then
+            echo "WARN: branch '$ref' is checked out in another worktree, creating detached HEAD"
+            local commit_hash
+            commit_hash="$(git -C "$MAIN_REPO" rev-parse "$ref")"
+            git -C "$MAIN_REPO" worktree add --detach "$exp_dir" "$commit_hash"
+            branch_flag="detached:$ref"
+        else
+            git -C "$MAIN_REPO" worktree add "$exp_dir" "$ref"
+            branch_flag="$ref"
+        fi
+    else
+        # It's a commit hash or tag — detach
+        git -C "$MAIN_REPO" worktree add --detach "$exp_dir" "$ref"
+        branch_flag="detached:$(git -C "$MAIN_REPO" rev-parse --short "$ref")"
+    fi
+
+    actual_commit="$(git -C "$exp_dir" rev-parse --short HEAD)"
+
+    # Create logs directory
+    mkdir -p "$exp_dir/logs_lobs5"
+
+    # Register
+    python3 -c "
+import json, sys
+from datetime import datetime
+with open('$REGISTRY') as f:
+    reg = json.load(f)
+reg['exp_${name}'] = {
+    'branch': '${branch_flag}',
+    'commit': '${actual_commit}',
+    'created': datetime.now().isoformat(),
+    'worktree': '${exp_dir}',
+    'jobs': []
+}
+with open('$REGISTRY', 'w') as f:
+    json.dump(reg, f, indent=2)
+"
+
+    echo "OK  Created experiment '$name'"
+    echo "    Path:   $exp_dir"
+    echo "    Branch: $branch_flag"
+    echo "    Commit: $actual_commit"
+    echo ""
+    echo "    Next: exp submit $name [KEY=VAL ...]"
+}
+
+# ===========================
+# exp list
+# ===========================
+cmd_list() {
+    _ensure_exp_root
+
+    python3 << 'PYEOF'
+import json, subprocess, os
+
+registry = os.environ.get("EXP_REGISTRY")
+with open(registry) as f:
+    reg = json.load(f)
+
+if not reg:
+    print("No experiments found. Create one with: exp new <name> <branch>")
+    exit(0)
+
+# Get running SLURM jobs
+running_jobs = {}
+try:
+    result = subprocess.run(
+        ["squeue", "-u", os.environ["USER"], "-h", "-o", "%i %T"],
+        capture_output=True, text=True, timeout=5
+    )
+    for line in result.stdout.strip().split('\n'):
+        if line.strip():
+            parts = line.split()
+            if len(parts) >= 2:
+                running_jobs[parts[0]] = parts[1]
+except Exception:
+    pass
+
+# Print table
+fmt = "{:<20s} {:<28s} {:<10s} {:<12s} {:<10s}"
+print(fmt.format("NAME", "BRANCH", "COMMIT", "JOB_ID", "STATUS"))
+print(fmt.format("----", "------", "------", "------", "------"))
+
+for key in sorted(reg.keys()):
+    info = reg[key]
+    display_name = key[4:] if key.startswith("exp_") else key
+    branch = info.get("branch", "?")[:27]
+    commit = info.get("commit", "?")[:8]
+    jobs = info.get("jobs", [])
+
+    if jobs:
+        last_job = jobs[-1]
+        job_id = last_job.get("job_id", "?")
+        status = running_jobs.get(job_id, "COMPLETED")
+    else:
+        job_id = "-"
+        status = "-"
+
+    print(fmt.format(display_name[:20], branch, commit, job_id[:12], status[:10]))
+PYEOF
+}
+
+# ===========================
+# exp submit <name> [KEY=VAL ...]
+# ===========================
+cmd_submit() {
+    local name="${1:?Usage: exp submit <name> [KEY=VAL ...]}"
+    shift
+    local exp_dir
+    exp_dir="$(_exp_dir "$name")"
+
+    if [ ! -d "$exp_dir" ]; then
+        echo "ERROR: experiment '$name' not found. Run: exp new $name <branch>"
+        exit 1
+    fi
+
+    if [ ! -f "$exp_dir/$BATCH_SCRIPT" ]; then
+        echo "ERROR: $BATCH_SCRIPT not found in $exp_dir"
+        echo "       This file must be git-tracked to appear in worktrees."
+        exit 1
+    fi
+
+    # Build env exports
+    local env_args=()
+    for kv in "$@"; do
+        env_args+=("$kv")
+    done
+
+    # Submit from worktree directory so SLURM resolves relative paths correctly
+    local job_id
+    job_id=$(cd "$exp_dir" && \
+        env "${env_args[@]}" WORKDIR="$exp_dir" \
+        sbatch --parsable "$BATCH_SCRIPT")
+
+    echo "OK  Submitted job $job_id for experiment '$name'"
+    echo "    Dir: $exp_dir"
+    echo "    Env: $*"
+    echo "    Log: $exp_dir/logs_lobs5/lobs5_${job_id}.out"
+
+    # Update registry
+    local env_json="{}"
+    if [ ${#env_args[@]} -gt 0 ]; then
+        env_json=$(python3 -c "
+import json, sys
+d = {}
+for arg in sys.argv[1:]:
+    if '=' in arg:
+        k, v = arg.split('=', 1)
+        d[k] = v
+print(json.dumps(d))
+" "${env_args[@]}")
+    fi
+
+    python3 -c "
+import json
+from datetime import datetime
+
+with open('$REGISTRY') as f:
+    reg = json.load(f)
+
+key = 'exp_${name}'
+if key in reg:
+    reg[key].setdefault('jobs', []).append({
+        'job_id': '$job_id',
+        'submitted': datetime.now().isoformat(),
+        'env': $env_json
+    })
+
+with open('$REGISTRY', 'w') as f:
+    json.dump(reg, f, indent=2)
+"
+}
+
+# ===========================
+# exp rm <name> [--keep-ckpt]
+# ===========================
+cmd_rm() {
+    local name="${1:?Usage: exp rm <name> [--keep-ckpt]}"
+    local keep_ckpt=false
+    if [ "${2:-}" = "--keep-ckpt" ]; then
+        keep_ckpt=true
+    fi
+
+    local exp_dir
+    exp_dir="$(_exp_dir "$name")"
+
+    if [ ! -d "$exp_dir" ]; then
+        echo "ERROR: experiment '$name' not found at $exp_dir"
+        exit 1
+    fi
+
+    # Check for running jobs
+    python3 -c "
+import json, subprocess, os, sys
+
+with open('$REGISTRY') as f:
+    reg = json.load(f)
+
+key = 'exp_${name}'
+info = reg.get(key, {})
+jobs = info.get('jobs', [])
+job_ids = [j['job_id'] for j in jobs]
+
+if job_ids:
+    try:
+        result = subprocess.run(
+            ['squeue', '-u', os.environ['USER'], '-h', '-o', '%i'],
+            capture_output=True, text=True, timeout=5
+        )
+        running = set(result.stdout.strip().split())
+        active = [j for j in job_ids if j in running]
+        if active:
+            print(f'ERROR: Active SLURM jobs: {active}')
+            print('Cancel them first (scancel) before removing the experiment.')
+            sys.exit(1)
+    except Exception:
+        pass
+"
+
+    if [ "$keep_ckpt" = true ] && [ -d "$exp_dir/checkpoints" ]; then
+        local archive_dir="$EXP_ROOT/.archived/exp_${name}"
+        mkdir -p "$archive_dir"
+        mv "$exp_dir/checkpoints" "$archive_dir/"
+        echo "OK  Archived checkpoints to $archive_dir"
+    fi
+
+    # Remove worktree
+    git -C "$MAIN_REPO" worktree remove --force "$exp_dir"
+
+    # Remove from registry
+    python3 -c "
+import json
+with open('$REGISTRY') as f:
+    reg = json.load(f)
+reg.pop('exp_${name}', None)
+with open('$REGISTRY', 'w') as f:
+    json.dump(reg, f, indent=2)
+"
+
+    echo "OK  Removed experiment '$name'"
+}
+
+# ===========================
+# exp cd <name>
+# ===========================
+cmd_cd() {
+    local name="${1:?Usage: exp cd <name>}"
+    local exp_dir
+    exp_dir="$(_exp_dir "$name")"
+
+    if [ ! -d "$exp_dir" ]; then
+        echo "ERROR: experiment '$name' not found" >&2
+        exit 1
+    fi
+
+    echo "$exp_dir"
+}
+
+# ===========================
+# exp status <name>
+# ===========================
+cmd_status() {
+    local name="${1:?Usage: exp status <name>}"
+    local exp_dir
+    exp_dir="$(_exp_dir "$name")"
+
+    echo "=== Experiment: $name ==="
+    echo "Path: $exp_dir"
+
+    if [ -d "$exp_dir" ]; then
+        local branch
+        branch="$(git -C "$exp_dir" rev-parse --abbrev-ref HEAD 2>/dev/null || echo 'detached')"
+        echo "Branch: $branch"
+        echo "Commit: $(git -C "$exp_dir" rev-parse --short HEAD)"
+        echo "Dirty:  $(git -C "$exp_dir" status --porcelain 2>/dev/null | wc -l) files"
+
+        if [ -d "$exp_dir/checkpoints" ]; then
+            local ckpt_count
+            ckpt_count=$(find "$exp_dir/checkpoints" -maxdepth 1 -mindepth 1 -type d 2>/dev/null | wc -l)
+            local ckpt_size
+            ckpt_size=$(du -sh "$exp_dir/checkpoints" 2>/dev/null | cut -f1)
+            echo "Checkpoints: $ckpt_count runs, $ckpt_size total"
+        else
+            echo "Checkpoints: none"
+        fi
+    else
+        echo "(worktree directory missing)"
+    fi
+
+    # Job info from registry
+    python3 -c "
+import json
+with open('$REGISTRY') as f:
+    reg = json.load(f)
+info = reg.get('exp_${name}', {})
+jobs = info.get('jobs', [])
+if jobs:
+    print(f'Jobs: {len(jobs)} submitted')
+    for j in jobs[-5:]:
+        env_str = ' '.join(f'{k}={v}' for k, v in j.get('env', {}).items())
+        print(f'  {j[\"job_id\"]}  {j.get(\"submitted\",\"?\")[:19]}  {env_str}')
+else:
+    print('Jobs: none')
+"
+}
+
+# ===========================
+# exp log <name> [job_id]
+# ===========================
+cmd_log() {
+    local name="${1:?Usage: exp log <name> [job_id]}"
+    local exp_dir
+    exp_dir="$(_exp_dir "$name")"
+    local job_id="${2:-}"
+
+    if [ -z "$job_id" ]; then
+        # Find latest job from registry
+        job_id=$(python3 -c "
+import json
+with open('$REGISTRY') as f:
+    reg = json.load(f)
+info = reg.get('exp_${name}', {})
+jobs = info.get('jobs', [])
+if jobs:
+    print(jobs[-1]['job_id'])
+" 2>/dev/null || true)
+    fi
+
+    if [ -z "$job_id" ]; then
+        echo "ERROR: no jobs found for experiment '$name'"
+        exit 1
+    fi
+
+    local logfile="$exp_dir/logs_lobs5/lobs5_${job_id}.out"
+    if [ -f "$logfile" ]; then
+        grep -v "sol_gpu_cost_model" "$logfile" | tail -80
+    else
+        echo "Log not found: $logfile"
+        echo "Available logs:"
+        ls -t "$exp_dir/logs_lobs5/"*.out 2>/dev/null | head -5 || echo "  (none)"
+    fi
+}
+
+# ===========================
+# Main dispatch
+# ===========================
+export EXP_REGISTRY="$REGISTRY"
+
+case "${1:-help}" in
+    new)     shift; cmd_new "$@" ;;
+    list|ls) cmd_list ;;
+    submit)  shift; cmd_submit "$@" ;;
+    rm)      shift; cmd_rm "$@" ;;
+    cd)      shift; cmd_cd "$@" ;;
+    status)  shift; cmd_status "$@" ;;
+    log)     shift; cmd_log "$@" ;;
+    help|*)
+        cat << 'HELP'
+exp - Git worktree parallel experiment manager
+
+Usage:
+  exp new <name> [branch/commit]      Create experiment worktree
+  exp list                            List all experiments and SLURM jobs
+  exp submit <name> [K=V ...]         Submit SLURM job in experiment worktree
+  exp rm <name> [--keep-ckpt]         Remove experiment worktree
+  exp cd <name>                       Print experiment directory path
+  exp status <name>                   Show detailed experiment info
+  exp log <name> [job_id]             Tail latest experiment log
+
+Examples:
+  exp new moe-test moe_example
+  exp submit moe-test PER_GPU_BSZ=4 CURTAIL_EPOCHS=10
+  exp submit moe-test PER_GPU_BSZ=2 WANDB_PROJECT=moe-exp
+  exp list
+  cd $(exp cd moe-test)
+  exp log moe-test
+  exp rm moe-test --keep-ckpt
+HELP
+        ;;
+esac

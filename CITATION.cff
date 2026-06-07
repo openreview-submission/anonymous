@@ -1,0 +1,6 @@
+cff-version: 1.2.0
+message: "Author and repository details are withheld for double-blind review."
+authors:
+- name: "Anonymous Authors"
+title: "Generative AI for End-to-End Limit Order Book Modelling: A Token-Level Autoregressive Generative Model of Message Flow Using a Deep State Space Network"
+version: 0.0.1

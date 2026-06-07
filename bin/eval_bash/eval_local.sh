@@ -1,0 +1,10 @@
+ python3 run_eval.py --restore="/home/myuser/data/checkpoints/s5_new/twilight-sound-77_s42sujip/" \
+                        --dir_name="/home/myuser/data/processed_data/GOOG/2023_Jan/" \
+                        --restore_step=23 \
+                        --n_data_workers=4 \
+                        --bsz=32 \
+                        --num_devices=8 \
+                        --USE_WANDB=True \
+                        --ignore_times=True \
+                        --epochs=1 \
+                        #--curtail_epoch= \

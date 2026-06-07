@@ -1,0 +1,108 @@
+# ===== NeurIPS double-blind release .gitignore =====
+# Build / cache
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.ipynb_checkpoints/
+
+# Large artifacts / data / weights (never released)
+checkpoints/
+wandb/
+core
+*.npz
+*.npy
+*.zst
+
+# Job logs / monitor output (leak names, paths, wandb entity)
+*.out
+*.err
+*.log
+dmon_logs/
+logs_lobs5/
+logs_r1/
+ft_logs*/
+agent_outputs/
+tmpcwj4jajs/
+
+# Personal / agent / process docs (NOT part of paper code; contain real names + HPC details)
+AGENTS.md
+CLAUDE.md
+HPC_SAFETY_EN.md
+QA_LOG.md
+plans.md
+progress.md
+findings.md
+learnt_lessons.md
+learned_lessons.md
+RUN.md
+context_scaling_findings.md
+context_scaling_findings*.md
+research_*.md
+subagent_*.md
+scaling_law_runs.md
+scaling_runs_live_jobs.md
+muon_lr_scaling_analysis.md
+TRITON_DEBUG_STATUS.md
+
+# Stray
+*.bak
+.gitmodules
+_excluded/
+
+# De-anonymized real cluster paths (credentials/real_env.sh) — NEVER release
+credentials/
+
+# ===== Scope A: exclude one-off analysis scripts & result artifacts =====
+# Top-level analysis/extraction/plotting scripts (not core reproducible code)
+/extract_*.py
+/plot_*.py
+/profile_*.py
+/isoflop_*.py
+/fit_*.py
+/parse_*.py
+/compare_*.py
+/diff_*.py
+/check_*.py
+/capture_*.py
+/grad_*.py
+/decode_*.py
+/aggregate_*.py
+/average_checkpoints.py
+/benchmark_fwd.py
+/dummy_proc.py
+/mamba3_legacy_norm.py
+
+# Result/figure/paper artifacts
+*.csv
+*.tsv
+*.png
+*.pdf
+*.tex
+*.ipynb
+
+# Analysis-only top-level batch/sh that pair with excluded scripts
+/compare_*.batch
+/diff_*.batch
+/capture_*.batch
+/compress_*.batch
+/decompress_*.batch
+/delete_*.batch
+
+# Non-core dirs
+tasks/
+scaling_validation/
+test_ce_sp500/
+viz/
+docs/figures/
+docs/superpowers/
+
+# compiled CUDA extension (regenerable binary)
+s5/mamba3_cuda_kernels/build/
+*.so
+
+# agent / tooling state
+.claude/
+.codex
+.watchdog.lock
+.watchdog_state
