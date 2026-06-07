@@ -858,15 +858,4 @@ There are obviously many other great researchers working on adapting, extending,
 - Ma, Xuezhe, et al. "Mega: Moving Average Equipped Gated Attention." arXiv preprint arXiv:2209.10655 (2022). [Link](https://arxiv.org/pdf/2209.10655).
 - Hasani, Ramin, et al. "Liquid Structural State-Space Models." arXiv preprint arXiv:2209.12951 (2022). [Link](https://web10.arxiv.org/pdf/2209.12951.pdf).
 
-## Citation
 
-Citation details are omitted to preserve anonymity during double-blind review.
-
-```
-@article{anonymous,
-  author  = {Anonymous Authors},
-  title   = {Generative AI for End-to-End Limit Order Book Modelling: A Token-Level Autoregressive Generative Model of Message Flow Using a Deep State Space Network},
-  note    = {Under review. Author and venue details withheld for double-blind review.},
-  year    = {}
-}
-```
