@@ -334,7 +334,7 @@ $n_\text{classes}=2112$ vocabulary. For a token position with true label $y$ and
 log-softmax output vector $\ell$, the per-token cross-entropy is
 
 $$
-\text{cross\\_entropy\\_loss}(\ell, y) = -\,\ell_y = -\log p(y)
+\mathrm{CE}(\ell, y) = -\,\ell_y = -\log p(y)
 \quad\text{where}\quad p(y) = \mathrm{softmax}(z)_y .
 $$
 
@@ -364,7 +364,7 @@ masks the loss and accuracy computation. The 5 absolute-time tokens (idx 11-12
 $$
 \mathcal{L}_{\text{full}} = \mathrm{mean}\big(\text{CE}[0:26]\big),
 \qquad
-\mathcal{L}_{\text{ignore\\_times}} = \mathrm{mean}\big(\text{CE}[0:11] \,\Vert\, \text{CE}[16:26]\big),
+\mathcal{L}_{\text{ignore\_times}} = \mathrm{mean}\big(\text{CE}[0:11] \,\Vert\, \text{CE}[16:26]\big),
 $$
 
 where $\Vert$ denotes concatenation, giving 21 retained positions per message.
@@ -415,7 +415,7 @@ steps, and $T_c$ the cosine steps.
 $$
 \eta(t) =
 \begin{cases}
-\eta_{\max}\,\dfrac{t+1}{T_w}, & 0 \le t < T_w \quad\text{(linear warmup)}\\[2.2ex]
+\eta_{\max}\,\dfrac{t+1}{T_w}, & 0 \le t < T_w \quad\text{(linear warmup)}\\\\
 \eta_{\min} + (\eta_{\max}-\eta_{\min})\cdot \dfrac{1}{2}\!\left(1 + \cos\!\left(\pi\,\dfrac{t-T_w}{T_c}\right)\right), & T_w \le t \le T_w + T_c \quad\text{(cosine decay)}
 \end{cases}
 $$
@@ -424,7 +424,7 @@ $$
 
 | Parameter | Value | Calculation |
 |:----------|:------|:------------|
-| `steps_per_epoch` | ~549 | $\text{train\\_size} / (\text{micro\\_bsz}\times \text{num\\_devices}\times \text{proc\\_count})$ |
+| `steps_per_epoch` | ~549 | `train_size` $/ ($ `micro_bsz` $\times$ `num_devices` $\times$ `proc_count` $)$ |
 | `warmup_steps` $T_w$ | ~549 | 1 epoch |
 | `cosine_steps` $T_c$ | ~21,411 | $39 \times 549$ |
 | `total_steps` | ~21,960 | $40 \times 549$ |
@@ -599,7 +599,7 @@ Logged from `lob/train/train.py`.
 
 ### Optional Per-Token CE Table (`log_ce_tables=True`)
 
-Columns: `tok` (token index in $[0,\text{seq\\_len})$), and per-epoch
+Columns: `tok` (token index in `[0, seq_len)`), and per-epoch
 `val_ce_{epoch}`, `test_ce_{epoch}`, `val_acc_{epoch}`, `test_acc_{epoch}`,
 `train_ce_{epoch}`.
 
@@ -618,7 +618,7 @@ Columns: `tok` (token index in $[0,\text{seq\\_len})$), and per-epoch
 
 ### 32N Throughput
 
-Token throughput is $\text{GLOBAL\\_BSZ}\times\text{seq\\_len}$ per step divided by
+Token throughput is `GLOBAL_BSZ` $\times$ `seq_len` per step divided by
 step time:
 
 $$
